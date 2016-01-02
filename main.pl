@@ -7,12 +7,13 @@ use Data::Dumper;
 use List::Util qw[min max];
 
 # Config Alliance Query
-my $alliance_Endpoint = "https://zkillboard.com/api/allianceID";
+my $alliance_Endpoint = "https://zkillboard.com/api/corporation";
 # 99004364 Exit Strategy...
-my $alliance_ID = 99004364;
+# 99000652 Blue
+my $alliance_ID = 1390846542;
 my @alliance_Options = ("no-items","no-attackers");
-my $alliance_LastKillId = 47524226;
-
+my $alliance_LastKillId = 50971255;
+my %listOfKills = ();
 # Config Single Kill Query
 my $kill_Endpoint = 'https://zkillboard.com/api/killID';
 my $kill_ID = -1;
@@ -23,7 +24,9 @@ my %listOfShips = ();
 my $itemname_File = 'itemname.csv';
 
 # Slack config
-my $slack_URL = 'https://hooks.slack.com/services/AAAA/BBBB/CCCC';
+# Beehive
+#my $slack_URL = 'https://hooks.slack.com/services/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';
+my $slack_URL = 'https://hooks.slack.com/services/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';
 my $slack_Channel = '#killmails';
 my $slack_Username = 'z2s';
 my $slack_icon = ':ghost:';
@@ -62,6 +65,7 @@ sub buildUrlAlly
 	{
 		$url = $url.'/afterKillID/'.$alliance_LastKillId;
 	}
+
 	return $url
 }
 
@@ -83,6 +87,7 @@ sub queryZkillboard
 	if ($resp->is_success)
 	{
 		$result = $resp->decoded_content;
+		#print "=================\n $result \n =================\n";
 	}
 	return $result;
 }
@@ -100,7 +105,13 @@ sub analyzeJsonAlly
 	my $killDate = '';
 	my $killValue = '';
 
+	# Dumping to file
+	my $filename = 'json.txt';
+	open(my $fh, '>', $filename) or die "Could not open file '$filename' $!";
+	#print $fh Dumper($struct);
+
 	my @aUnref = @{ $struct };
+	#print $fh Dumper(@aUnref);
 
 	for(@aUnref)
 	{
@@ -136,8 +147,12 @@ sub analyzeJsonKill
 		return;
 	}
 	my $struct = decode_json($json);
+	#my $filename = 'json.txt';
+	#open(my $fh, '>', $filename) or die "Could not open file '$filename' $!";
+	#print $fh Dumper($struct);
 
 	my @aUnref = @{ $struct };
+	#print $fh Dumper(@aUnref);
 	for(@aUnref)
 	{
 
@@ -222,7 +237,7 @@ sub generateSlackMessage
 	# corp
 	if ($victimAllyID ne $alliance_ID )
 	{
-		$msg = $msg.' from Exit-Strategy killed ';
+		$msg = $msg.' from Beehive-Surveillance killed ';
 	}
 	else
 	{

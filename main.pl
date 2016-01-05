@@ -5,65 +5,198 @@ use LWP;
 use JSON qw( decode_json );
 use Data::Dumper;
 use List::Util qw[min max];
+use Cwd qw( abs_path );
+use File::Basename;
+my $dirname = dirname(__FILE__);
 
-# Config Alliance Query
-my $alliance_Endpoint = "https://zkillboard.com/api/allianceID";
+
+
+# Zkillboard Endpoints
+my $zkAllyUrl = "https://zkillboard.com/api/allianceID/";
+my $zkCorpUrl = "https://zkillboard.com/api/corporation/";
+my $zkKillUrl = 'https://zkillboard.com/api/killID/';
+# Zkillboard options
+my @zkOptions = ("no-items","no-attackers");
+my @zkKillOptions = ("no-items");
+
+
+#Configuration
+my $lastFile = $dirname."/z2s.last";
+my $confFile = $dirname."/z2s.conf";
+my @arrayLastKills;
+# mode : 1 (Corp), 2 (Ally)
+my $mode = 2;
+my $entityId = 1390846542;
+my $nbKeptKills = 50;
+my $thousandDelimiter = " ";
 # 99004364 Exit Strategy...
-my $alliance_ID = 99004364;
-my @alliance_Options = ("no-items","no-attackers");
-my $alliance_LastKillId = 47524226;
+# 99000652 Blue
 
-# Config Single Kill Query
-my $kill_Endpoint = 'https://zkillboard.com/api/killID';
-my $kill_ID = -1;
-my @kill_Options = ("no-items");
 
 # Ship file
 my %listOfShips = ();
-my $itemname_File = 'itemname.csv';
+my $itemname_File = $dirname."/itemname.csv";
 
 # Slack config
-my $slack_URL = 'https://hooks.slack.com/services/AAAA/BBBB/CCCC';
+# Beehive
+#my $slack_URL = 'https://hooks.slack.com/services/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';
+my $slack_URL = 'https://hooks.slack.com/services/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';
 my $slack_Channel = '#killmails';
 my $slack_Username = 'z2s';
 my $slack_icon = ':ghost:';
 
 my $timeout = 120;
-while (1) {
-    my $start = time;
-    checkForNewKills();
-    my $end = time;
-    my $lasted = $end - $start;
-    if ($lasted < $timeout) {  
-        sleep($timeout - $lasted);
-    }
-};
+
+
+
+
+readConfFile();
+readKillFile();
+checkForNewKills();
+writeKillFile();
+
+#print "Fin\n";
+#exit;
+#while (1) {
+#    my $start = time;
+#    checkForNewKills();
+#    my $end = time;
+#    my $lasted = $end - $start;
+#    if ($lasted < $timeout) {  
+#        sleep($timeout - $lasted);
+#    }
+#};
 
 
 exit;
 
+sub readConfFile
+{
+	open(my $fh, "<", $confFile) or die "Could not open file '$lastFile' $!";
+	for(<$fh>)
+	{
+		if ( /mode=(\d)\n/ )
+		{
+			$mode = $1;
+		}
+		if ( /corporationID=(\d)\n/ )
+		{
+			$entityId = $1;
+		}
+		if ( /allianceID=(\d)\n/ )
+		{
+			$entityId = $1;
+		}
+		if ( /thousandDelimiter=(.*)\n/ )
+		{
+			$thousandDelimiter = $1;
+		}
+		if ( /cacheSize=(\d)\n/ )
+		{
+			$nbKeptKills = $1;
+		}
+	}
+}
+
+sub readKillFile
+{
+	open (my $fh, "<", $lastFile) or die "Could not open file '$lastFile' $!";;
+	for(<$fh>)
+	{
+		my $killId = $_;
+		$killId =~ s/\n$//g;
+		push @arrayLastKills, $killId;
+	}
+	close($fh);
+	@arrayLastKills =  sort { $a <=> $b } @arrayLastKills;
+	if ( @arrayLastKills == 0)
+	{
+		@arrayLastKills = push(@arrayLastKills, 0);
+	}
+}
+
+sub writeKillFile
+{
+	# We keep only the last kills
+	@arrayLastKills = sort { $a <=> $b } @arrayLastKills;
+	while ( @arrayLastKills > $nbKeptKills )
+	{
+		shift @arrayLastKills;
+	}
+
+	open (my $fh, ">", $lastFile) or die "Could not open file '$lastFile' $!";;
+	for(@arrayLastKills)
+	{
+		print $fh $_."\n";
+	}
+	close($fh);
+}
+
 
 sub checkForNewKills
 {
-	my $url = buildUrlAlly();
+	my $url = buildUrlCheckKills();
 	my $return = queryZkillboard($url);
-	my $decondedJson = analyzeJsonAlly($return);
+	if ($return eq 'fail') { return; }
+	my $zkAnswer = decode_json($return);
+
+	my @aUnref = @{ $zkAnswer };
+	my @killsNotSent;
+
+	for(@aUnref)
+	{
+		my %hUnref = %{ $_ };
+		my $killId = $hUnref{'killID'};
+		if ( !( grep(/$killId/,@arrayLastKills) ) )
+		{
+			push @killsNotSent, $killId;
+			push @arrayLastKills, $killId;
+		}
+	}
+
+
+	# Iteration on non sent kills 
+	@killsNotSent = sort { $a <=> $b } @killsNotSent;
+	for( @killsNotSent )
+	{
+		my $tmpUrl = buildUrlKillDetails($_);
+		my $killJson = queryZkillboard($tmpUrl);
+		analyzeJsonKill($killJson);
+	}
 }
 
-sub buildUrlAlly
+sub buildUrlCheckKills
 {
 	my $url;
-	$url = $alliance_Endpoint.'/'.$alliance_ID;
-	for (@alliance_Options)
+
+	# Ally or Corporation URL
+	if ( $mode == 1)
 	{
-		$url = $url.'/'.$_;
+		$url = $zkAllyUrl.$entityId;
 	}
-	if ($alliance_LastKillId != 0)
+	elsif ( $mode == 2)
 	{
-		$url = $url.'/afterKillID/'.$alliance_LastKillId;
+		$url = $zkCorpUrl.$entityId;
 	}
-	return $url
+	else
+	{
+		return;
+	}
+
+	# Kill we use as reference
+	my $firstKillId = $arrayLastKills[0];
+	$url = $url.'/afterKillID/'.$firstKillId;
+
+	# Options for zKillboard
+	for (@zkOptions)
+	{
+		$url = $url."/".$_;
+	}
+
+	return $url;
 }
+
+
 
 sub queryZkillboard
 {
@@ -71,7 +204,7 @@ sub queryZkillboard
 	my $result='fail';
 
 	my $ua = LWP::UserAgent->new;
-	$ua->agent("Z2s Bot - Author : Alyla By - laby \@laby.fr");
+	$ua->agent("Z2s Bot - Author : Alyla By - laby.eve \@laby.fr");
 
 	# set custom HTTP request header fields
 	my $req = HTTP::Request->new(GET => $url);
@@ -83,64 +216,31 @@ sub queryZkillboard
 	if ($resp->is_success)
 	{
 		$result = $resp->decoded_content;
+		#print "=================\n $result \n =================\n";
 	}
 	return $result;
 }
 
-sub analyzeJsonAlly
-{
-	my ($json) = @_;
-	if ($json eq 'fail')
-	{
-		return;
-	} 
-	my $struct = decode_json($json);
-
-	my $killId = 0;
-	my $killDate = '';
-	my $killValue = '';
-
-	my @aUnref = @{ $struct };
-
-	for(@aUnref)
-	{
-		my %hUnref = %{ $_ };
-		$killId = $hUnref{'killID'};
-		$killDate = $hUnref{'killTime'};
-		$killValue = $hUnref{'zkb'}{'totalValue'};
-
-		my $tmpUrl = buildUrlKill($killId);
-		my $killJson = queryZkillboard($tmpUrl);
-		$alliance_LastKillId = max($killId,$alliance_LastKillId);
-		analyzeJsonKill($killJson);
-	}
-}
-
-sub buildUrlKill
+sub buildUrlKillDetails
 {
 	my ($killId) = @_;
 	my $url;
-	$url = $kill_Endpoint.'/'.$killId;
-	for (@kill_Options)
+	$url = $zkKillUrl.$killId;
+	for (@zkKillOptions)
 	{
 		$url = $url.'/'.$_;
 	}
-	return $url
+	return $url;
 }
 
 sub analyzeJsonKill
 {
 	my ($json) = @_;
-	if ($json eq 'fail')
-	{
-		return;
-	}
+	if ($json eq 'fail') { print "fail !"; return; }
 	my $struct = decode_json($json);
-
 	my @aUnref = @{ $struct };
 	for(@aUnref)
 	{
-
 		my $msg = generateSlackMessage($_);
 		sendToSlack($msg);
 	}
@@ -180,11 +280,13 @@ sub generateSlackMessage
 	my @attackers = @{ $hUnref{'attackers'} };
 
 	my $numberAttackers = 0;
+	my $entityName;
 	for(@attackers)
 	{
 		my %hashAttacker = %{$_};
-		if ( $hashAttacker{'allianceID'} == $alliance_ID )
+		if (( ($mode == 1)&&($hashAttacker{'allianceID'} == $entityId) ) or ( ($mode == 2)&&($hashAttacker{'corporationID'} == $entityId) ))
 		{
+			$entityName = $hashAttacker{'corporationName'} || $hashAttacker{'allianceName'};
 			$numberAttackers++;
 		}
 	}
@@ -193,13 +295,14 @@ sub generateSlackMessage
 		$numberAttackers = scalar @attackers;
 	}
 
-	my $lossValue = $hUnref{'zkb'}{'totalValue'};
-	$lossValue = formatNumber($lossValue);
+	my $lossValue = formatNumber($hUnref{'zkb'}{'totalValue'});
 	my $victimID = $hUnref{'victim'}{'characterID'};
 	my $victimName = $hUnref{'victim'}{'characterName'};
 	my $victimCorp = $hUnref{'victim'}{'corporationName'};
-	my $victimAllyID = $hUnref{'victim'}{'allianceID'};
+	my $victimCorpID = $hUnref{'victim'}{'corporationID'};
 	my $victimAlly = $hUnref{'victim'}{'allianceName'};
+	my $victimAllyID = $hUnref{'victim'}{'allianceID'};
+	
 	my $victimShip = $hUnref{'victim'}{'shipTypeID'};
 
 	my $killURL = 'https://zkillboard.com/kill/'.$killId;
@@ -219,10 +322,10 @@ sub generateSlackMessage
 		$msg = $msg.' pilot';
 	}
 
-	# corp
-	if ($victimAllyID ne $alliance_ID )
+	# Ally 
+	if ( $victimAllyID ne $entityId and $victimCorpID ne $entityId )
 	{
-		$msg = $msg.' from Exit-Strategy killed ';
+		$msg = $msg." from $entityName killed ";
 	}
 	else
 	{
@@ -240,6 +343,7 @@ sub generateSlackMessage
 		$msg = $msg.'a '.$shipName;
 	}
 	$msg = $msg." piloted by <$victimURL|$victimName> ($victimCorp). Killmail value : $lossValue ISK (<$killURL|Link>)";
+
 
 	return $msg;
 
@@ -274,6 +378,7 @@ sub getShipName
 sub sendToSlack
 {
 	my ($msg) = @_;
+	print $msg;
 	my $ua = LWP::UserAgent->new;
 	my $req = HTTP::Request->new(POST => $slack_URL);
 	$ua->agent("Z2s Bot - Author : Alyla By - laby \@laby.fr");

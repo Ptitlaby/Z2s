@@ -10,7 +10,6 @@ use File::Basename;
 my $dirname = dirname(__FILE__);
 
 
-
 # Zkillboard Endpoints
 my $zkAllyUrl = "https://zkillboard.com/api/allianceID/";
 my $zkCorpUrl = "https://zkillboard.com/api/corporation/";
@@ -24,23 +23,25 @@ my @zkKillOptions = ("no-items");
 my $lastFile = $dirname."/z2s.last";
 my $confFile = $dirname."/z2s.conf";
 my @arrayLastKills;
-# mode : 1 (Corp), 2 (Ally)
+# mode : 1 (Ally), 2 (Corp)
 my $mode = 2;
 my $entityId = 1390846542;
 my $nbKeptKills = 50;
 my $thousandDelimiter = " ";
-# 99004364 Exit Strategy...
-# 99000652 Blue
 
 
 # Ship file
 my %listOfShips = ();
 my $itemname_File = $dirname."/itemname.csv";
 
+# Eve Online CREST Endpoint
+my $CRESTUrl = "https://public-crest.eveonline.com/types/?page=";
+
+# User agent
+my $userAgent = "Z2s Bot - Author : Alyla By - laby \@laby.fr";
+
 # Slack config
-# Beehive
-#my $slack_URL = 'https://hooks.slack.com/services/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';
-my $slack_URL = 'https://hooks.slack.com/services/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';
+my $slack_URL = 'https://hooks.slack.com/services/CCC/BBB/AAA';
 my $slack_Channel = '#killmails';
 my $slack_Username = 'z2s';
 my $slack_icon = ':ghost:';
@@ -49,23 +50,10 @@ my $timeout = 120;
 
 
 
-
 readConfFile();
 readKillFile();
 checkForNewKills();
-writeKillFile();
-
-#print "Fin\n";
-#exit;
-#while (1) {
-#    my $start = time;
-#    checkForNewKills();
-#    my $end = time;
-#    my $lasted = $end - $start;
-#    if ($lasted < $timeout) {  
-#        sleep($timeout - $lasted);
-#    }
-#};
+#writeKillFile();
 
 
 exit;
@@ -136,7 +124,7 @@ sub writeKillFile
 sub checkForNewKills
 {
 	my $url = buildUrlCheckKills();
-	my $return = queryZkillboard($url);
+	my $return = httpQuery($url);
 	if ($return eq 'fail') { return; }
 	my $zkAnswer = decode_json($return);
 
@@ -160,7 +148,7 @@ sub checkForNewKills
 	for( @killsNotSent )
 	{
 		my $tmpUrl = buildUrlKillDetails($_);
-		my $killJson = queryZkillboard($tmpUrl);
+		my $killJson = httpQuery($tmpUrl);
 		analyzeJsonKill($killJson);
 	}
 }
@@ -198,13 +186,13 @@ sub buildUrlCheckKills
 
 
 
-sub queryZkillboard
+sub httpQuery
 {
 	my ($url) = @_;
 	my $result='fail';
 
 	my $ua = LWP::UserAgent->new;
-	$ua->agent("Z2s Bot - Author : Alyla By - laby.eve \@laby.fr");
+	$ua->agent($userAgent);
 
 	# set custom HTTP request header fields
 	my $req = HTTP::Request->new(GET => $url);
@@ -353,17 +341,20 @@ sub generateSlackMessage
 sub getShipName
 {
 	my ($shipId) = @_;
+	
 	if ( exists $listOfShips{$shipId} )
 	{
 		return $listOfShips{$shipId};
 	}
 	else
 	{
+
 		open(my $fh, '<', $itemname_File) or die "Could not open file '$itemname_File' $!";
 		for(<$fh>)
 		{
 			my $line = $_;
 			my @splitResult = split(/\t/,$line);
+
 			if ( $splitResult[0] eq $shipId )
 			{
 				$splitResult[1] =~ s/\n//g;
@@ -371,8 +362,79 @@ sub getShipName
 				return $listOfShips{$shipId};
 			}
 		}
+
+		return retrieveNameFromCREST($shipId);
+
 	}
+	
 	return $shipId;
+}
+
+sub retrieveNameFromCREST
+{
+	my ($shipId) = @_;
+	my $CRESTPage = 1;
+	my $shipName = $shipId;
+	my $CRESTPageCount = 2;
+	
+	
+	do {
+	
+		my $currentURL = $CRESTUrl.$CRESTPage;
+		
+		my $json = httpQuery($currentURL);
+		
+		if ($json eq 'fail') { 
+			print "fail !"; 
+			return $shipName; 
+		}
+		
+		my $data = decode_json($json);
+		
+		$CRESTPageCount = $data->{'pageCount'};
+	
+		$shipName = searchItem($shipId, @{$data->{'items'}});
+		
+		if ($shipName ne $shipId)
+		{
+			$listOfShips{$shipId} = $shipName;
+			appendItemFile ($shipId, $shipName);
+			return $shipName;
+		}
+		
+		$CRESTPage ++;
+	}
+	while ($CRESTPage <= $CRESTPageCount);
+	
+	return $shipId;
+}
+
+sub searchItem
+{
+	my ($shipId, @items) = @_;
+
+	
+	foreach my $item (@items) 
+	{
+		my ($crestId) = $item->{'href'} =~ /.*types\/([0-9]*)\//;
+		
+		if ($crestId eq $shipId)
+		{
+			return $item->{'name'};
+		}
+	}
+	
+	return $shipId;
+}
+
+sub appendItemFile
+{
+	my ($shipId, $name) = (@_);
+	my $line = $shipId . "\t" . $name;
+	
+	open (my $fh, ">>", $itemname_File) or die "Could not open file '$itemname_File' $!";;
+	print $fh $line."\n";
+	close($fh);
 }
 
 sub sendToSlack
@@ -384,7 +446,6 @@ sub sendToSlack
 	$ua->agent("Z2s Bot - Author : Alyla By - laby \@laby.fr");
 	 
 	# add POST data to HTTP request body
-	#toto
 	my $post_data = '{ "text":"'.$msg.'", "channel": "'.$slack_Channel.'" , "username":"'.$slack_Username.'", "icon_emoji":"'.$slack_icon.'"}';
 	$req->content($post_data);
 	 

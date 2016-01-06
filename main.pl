@@ -433,7 +433,7 @@ sub appendItemFile
 	my $line = $shipId . "\t" . $name;
 	
 	open (my $fh, ">>", $itemname_File) or die "Could not open file '$itemname_File' $!";;
-	print $fh $line."\n";
+	print $fh "\n".$line;
 	close($fh);
 }
 

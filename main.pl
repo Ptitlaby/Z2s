@@ -26,7 +26,7 @@ my @arrayLastKills;
 # mode : 1 (Ally), 2 (Corp)
 my $mode = 2;
 my $entityId = 1390846542;
-my $nbKeptKills = 50;
+my $nbKeptKills = 30;
 my $thousandDelimiter = " ";
 
 
@@ -431,6 +431,8 @@ sub appendItemFile
 {
 	my ($shipId, $name) = (@_);
 	my $line = $shipId . "\t" . $name;
+	
+	if ( ! $name ) { return;}
 	
 	open (my $fh, ">>", $itemname_File) or die "Could not open file '$itemname_File' $!";;
 	print $fh "\n".$line;

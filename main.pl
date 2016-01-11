@@ -53,7 +53,7 @@ my $timeout = 120;
 readConfFile();
 readKillFile();
 checkForNewKills();
-#writeKillFile();
+writeKillFile();
 
 
 exit;

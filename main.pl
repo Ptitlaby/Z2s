@@ -82,6 +82,14 @@ sub readConfFile
 		if ( /cacheSize=(\d)\n/ )
 		{
 			$nbKeptKills = $1;
+		}		
+		if ( /slackURL=(.+)\n/ )
+		{
+			$slack_URL = $1;
+		}		
+		if ( /slackChannel=(.+)/ )
+		{
+			$slack_Channel = $1;
 		}
 	}
 }

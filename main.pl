@@ -26,7 +26,7 @@ my @arrayLastKills;
 # mode : 1 (Ally), 2 (Corp)
 my $mode = 2;
 my $entityId = 1390846542;
-my $nbKeptKills = 50;
+my $nbKeptKills = 30;
 my $thousandDelimiter = " ";
 
 
@@ -53,7 +53,7 @@ my $timeout = 120;
 readConfFile();
 readKillFile();
 checkForNewKills();
-#writeKillFile();
+writeKillFile();
 
 
 exit;
@@ -82,6 +82,14 @@ sub readConfFile
 		if ( /cacheSize=(\d)\n/ )
 		{
 			$nbKeptKills = $1;
+		}		
+		if ( /slackURL=(.+)\n/ )
+		{
+			$slack_URL = $1;
+		}		
+		if ( /slackChannel=(.+)/ )
+		{
+			$slack_Channel = $1;
 		}
 	}
 }
@@ -431,6 +439,8 @@ sub appendItemFile
 {
 	my ($shipId, $name) = (@_);
 	my $line = $shipId . "\t" . $name;
+	
+	if ( ! $name ) { return;}
 	
 	open (my $fh, ">>", $itemname_File) or die "Could not open file '$itemname_File' $!";;
 	print $fh "\n".$line;

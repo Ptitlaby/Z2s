@@ -60,18 +60,18 @@ exit;
 
 sub readConfFile
 {
-	open(my $fh, "<", $confFile) or die "Could not open file '$lastFile' $!";
+	open(my $fh, "<", $confFile) or die "Could not open file '$confFile' $!";
 	for(<$fh>)
 	{
-		if ( /mode=(\d)\n/ )
+		if ( /mode=([0-9]*)\n/ )
 		{
 			$mode = $1;
 		}
-		if ( /corporationID=(\d)\n/ )
+		if ( /corporationID=([0-9]*)\n/ )
 		{
 			$entityId = $1;
 		}
-		if ( /allianceID=(\d)\n/ )
+		if ( /allianceID=([0-9]*)\n/ )
 		{
 			$entityId = $1;
 		}
@@ -79,7 +79,7 @@ sub readConfFile
 		{
 			$thousandDelimiter = $1;
 		}
-		if ( /cacheSize=(\d)\n/ )
+		if ( /cacheSize=([0-9]*)\n/ )
 		{
 			$nbKeptKills = $1;
 		}		

@@ -10,6 +10,7 @@ use File::Basename;
 my $dirname = dirname(__FILE__);
 
 
+
 # Zkillboard Endpoints
 my $zkAllyUrl = "https://zkillboard.com/api/allianceID/";
 my $zkCorpUrl = "https://zkillboard.com/api/corporation/";
@@ -23,26 +24,31 @@ my @zkKillOptions = ("no-items");
 my $lastFile = $dirname."/z2s.last";
 my $confFile = $dirname."/z2s.conf";
 my @arrayLastKills;
-# mode : 1 (Ally), 2 (Corp)
+# mode : 1 (Corp), 2 (Ally)
 my $mode = 2;
 my $entityId = 1390846542;
 my $nbKeptKills = 30;
 my $thousandDelimiter = " ";
 
 
-# Ship file
-my %listOfShips = ();
-my $itemname_File = $dirname."/itemname.csv";
-
 # Eve Online CREST Endpoint
-my $CRESTUrl = "https://public-crest.eveonline.com/types/?page=";
+my $CRESTUrl = "https://crest-tq.eveonline.com/inventory/types/?page=";
 
 # User agent
 my $userAgent = "Z2s Bot - Author : Alyla By - laby \@laby.fr";
 
+# Ship file
+my %listOfShips = ();
+my $itemname_File = $dirname."/itemname.csv";
+
 # Slack config
-my $slack_URL = 'https://hooks.slack.com/services/CCC/BBB/AAA';
+# my $slack_URL = 'https://hooks.slack.com/services/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'; # chan de test
+# my $slack_Channel = '#test';
+
+
+my $slack_URL = 'https://hooks.slack.com/services/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'; # chan #killmails
 my $slack_Channel = '#killmails';
+
 my $slack_Username = 'z2s';
 my $slack_icon = ':ghost:';
 
@@ -54,6 +60,18 @@ readConfFile();
 readKillFile();
 checkForNewKills();
 writeKillFile();
+
+#print "Fin\n";
+#exit;
+#while (1) {
+#    my $start = time;
+#    checkForNewKills();
+#    my $end = time;
+#    my $lasted = $end - $start;
+#    if ($lasted < $timeout) {  
+#        sleep($timeout - $lasted);
+#    }
+#};
 
 
 exit;
@@ -135,7 +153,8 @@ sub checkForNewKills
 	my $return = httpQuery($url);
 	if ($return eq 'fail') { return; }
 	my $zkAnswer = decode_json($return);
-
+	#print "Reponse json : \n";
+	#print Dumper($zkAnswer);
 	my @aUnref = @{ $zkAnswer };
 	my @killsNotSent;
 
@@ -156,8 +175,10 @@ sub checkForNewKills
 	for( @killsNotSent )
 	{
 		my $tmpUrl = buildUrlKillDetails($_);
+		print "Next kill analyzed : $tmpUrl\n";
 		my $killJson = httpQuery($tmpUrl);
 		analyzeJsonKill($killJson);
+		sleep(1);
 	}
 }
 
@@ -237,7 +258,9 @@ sub analyzeJsonKill
 	my @aUnref = @{ $struct };
 	for(@aUnref)
 	{
+		print "generating slack message\n";
 		my $msg = generateSlackMessage($_);
+		print "ready to send msg : $msg \n";
 		sendToSlack($msg);
 	}
 }
@@ -290,6 +313,7 @@ sub generateSlackMessage
 	{
 		$numberAttackers = scalar @attackers;
 	}
+	print "parsing attackers done\n";
 
 	my $lossValue = formatNumber($hUnref{'zkb'}{'totalValue'});
 	my $victimID = $hUnref{'victim'}{'characterID'};
@@ -304,6 +328,8 @@ sub generateSlackMessage
 	my $killURL = 'https://zkillboard.com/kill/'.$killId;
 
 	my $victimURL = 'https://zkillboard.com/character/'.$victimID;
+	
+	print "parsing other done\n";
 
 	my $msg;
 	$msg = $msg.$numberAttackers;
@@ -327,6 +353,7 @@ sub generateSlackMessage
 	{
 		$msg = $msg.' killed ';
 	}
+	print "parsing pilots done\n";
 
 	#ship name
 	my $shipName = getShipName($victimShip);
@@ -338,8 +365,10 @@ sub generateSlackMessage
 	{
 		$msg = $msg.'a '.$shipName;
 	}
-	$msg = $msg." piloted by <$victimURL|$victimName> ($victimCorp). Killmail value : $lossValue ISK (<$killURL|Link>)";
 
+	print "parsing shipName done \n";
+	$msg = $msg." piloted by <$victimURL|$victimName> ($victimCorp). Killmail value : $lossValue ISK (<$killURL|Link>)";
+	
 
 	return $msg;
 
@@ -349,20 +378,17 @@ sub generateSlackMessage
 sub getShipName
 {
 	my ($shipId) = @_;
-	
 	if ( exists $listOfShips{$shipId} )
 	{
 		return $listOfShips{$shipId};
 	}
 	else
 	{
-
 		open(my $fh, '<', $itemname_File) or die "Could not open file '$itemname_File' $!";
 		for(<$fh>)
 		{
 			my $line = $_;
 			my @splitResult = split(/\t/,$line);
-
 			if ( $splitResult[0] eq $shipId )
 			{
 				$splitResult[1] =~ s/\n//g;
@@ -374,7 +400,6 @@ sub getShipName
 		return retrieveNameFromCREST($shipId);
 
 	}
-	
 	return $shipId;
 }
 
